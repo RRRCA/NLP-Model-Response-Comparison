@@ -1,0 +1,61 @@
+# ===== Python =====
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+
+# ===== Virtual Environments =====
+.env
+venv/
+ENV/
+env/
+
+# ===== Jupyter / Colab =====
+.ipynb_checkpoints/
+*.ipynb-protocol
+.ipynb_cache/
+
+# ===== VSCode =====
+.vscode/
+
+# ===== Logs =====
+*.log
+logs/
+wandb/
+
+# ===== Data =====
+# data/
+# datasets/
+# *.csv
+# *.tsv
+# *.json
+# *.xlsx
+# *.zip
+
+# ===== Model files (large) =====
+*.bin
+*.pt
+*.ckpt
+*.pth
+*.safetensors
+*.npy
+*.npz
+
+# ===== HuggingFace cache =====
+huggingface/
+.cache/
+transformers_cache/
+hf_cache/
+
+# ===== Output folders =====
+outputs/
+results/
+checkpoints/
+runs/
+experiments/
+saved_models/
+
+# ===== System =====
+.DS_Store
+Thumbs.db
