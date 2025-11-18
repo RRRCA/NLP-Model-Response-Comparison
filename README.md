@@ -40,5 +40,72 @@ data/
     empathetic_dialogues/{train,validation,test}.jsonl
 ```
 
-These files are all the team needs for tomorrow’s modeling work. No extra txt files are required for EmpatheticDialogues; keeping the tarball plus the JSONL outputs is enough.
+These files are all the team needs for tomorrow's modeling work. No extra txt files are required for EmpatheticDialogues; keeping the tarball plus the JSONL outputs is enough.
+
+## Shared Configuration for Fair Evaluation
+
+To ensure fair comparison between small transformer and LLM models, we use shared configuration files that both team members must use.
+
+### Configuration Files
+
+1. **`config.json`** - Main configuration file containing:
+   - Test sample settings (using all test samples)
+   - Prompt template format
+   - Context settings (history turns, separators)
+   - Evaluation metrics configuration
+
+2. **`prompt_templates.py`** - Python module with standardized prompt formatting functions:
+   - `format_prompt()` - Format context for model input
+   - `format_training_example()` - Format training examples
+   - Standard separators and prefixes
+
+3. **`data/test_sample_ids.json`** - List of all test sample IDs from both datasets:
+   - DailyDialog: 6,740 samples
+   - EmpatheticDialogues: 10,943 samples
+   - Total: 17,683 samples
+
+### Usage
+
+**For Small Transformer (DialoGPT) side:**
+```python
+from prompt_templates import format_prompt, format_training_example
+import json
+
+# Load config
+with open('config.json') as f:
+    config = json.load(f)
+
+# Load test sample IDs
+with open('data/test_sample_ids.json') as f:
+    test_samples = json.load(f)
+
+# Format prompts using shared template
+context = "Hello <eot> How are you?"
+prompt = format_prompt(context)  # "[User]: Hello <eot> How are you? <eos> [System]:"
+```
+
+**For LLM side:**
+```python
+from prompt_templates import format_prompt
+import json
+
+# Load config and test samples (same as above)
+# Use format_prompt() to ensure identical prompt format
+```
+
+### Important Notes
+
+- **Both models must use the same prompt format** - Use `format_prompt()` from `prompt_templates.py`
+- **Both models must use the same test samples** - Load IDs from `data/test_sample_ids.json`
+- **Both models must use the same context settings** - Follow `config.json` settings
+- **Evaluation metrics must be calculated identically** - Use the same BERTScore model, BLEU settings, etc.
+
+### Generating Test Sample List
+
+If you need to regenerate the test sample list:
+```bash
+python generate_test_samples.py
+```
+
+This will create `data/test_sample_ids.json` with all test sample IDs from both datasets.
 

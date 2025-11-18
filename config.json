@@ -1,0 +1,32 @@
+{
+  "test_samples": {
+    "method": "all",
+    "description": "Use all test samples from both datasets for evaluation"
+  },
+  "prompt_template": {
+    "format": "[User]: {context} <eos> [System]:",
+    "separator": "<eot>",
+    "include_system_prompt": false,
+    "description": "Standard prompt format for both small transformer and LLM models"
+  },
+  "context_settings": {
+    "history_turns": 3,
+    "separator": "<eot>",
+    "description": "Number of previous turns to include in context window"
+  },
+  "evaluation": {
+    "bertscore_model": "microsoft/deberta-xlarge-mnli",
+    "bleu_n_grams": [1, 2, 3, 4],
+    "distinct_n": [1, 2],
+    "description": "Evaluation metrics configuration"
+  },
+  "datasets": {
+    "dailydialog": {
+      "test_path": "data/processed_sample/dailydialog/test.jsonl"
+    },
+    "empathetic_dialogues": {
+      "test_path": "data/processed_sample/empathetic_dialogues/test.jsonl"
+    }
+  }
+}
+
