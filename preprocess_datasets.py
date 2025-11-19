@@ -21,6 +21,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
+from collections import defaultdict
 
 from huggingface_hub import hf_hub_download
 
@@ -122,32 +123,77 @@ def load_empathetic_split(split: str, cache_dir: Path) -> List[Dict]:
     return rows
 
 
-def build_empathetic_examples(split: str, cache_dir: Path) -> List[Dict]:
-    """Convert EmpatheticDialogues rows to the shared schema."""
+def build_empathetic_examples(split: str, cache_dir: Path, history: int = 3) -> List[Dict]:
+    """
+    Convert EmpatheticDialogues rows to the shared schema.
+    
+    Note: In EmpatheticDialogues, the 'context' field is actually an emotion label,
+    not conversation history. We need to build the conversation history from
+    utterances ordered by utterance_idx, similar to DailyDialog.
+    """
     records = load_empathetic_split(split, cache_dir)
     examples: List[Dict] = []
-    turn_counters: Dict[str, int] = {}
-
+    
+    # Group records by conversation ID
+    conversations: Dict[str, List[Dict]] = {}
     for record in records:
         conv_id = record["conv_id"]
-        response = normalize_text(record["utterance"])
-        context = normalize_text(record["context"].replace("__eou__", HISTORY_SEPARATOR.strip()))
-        if not context or not response:
+        if conv_id not in conversations:
+            conversations[conv_id] = []
+        conversations[conv_id].append({
+            "utterance_idx": int(record["utterance_idx"]),
+            "speaker": int(record.get("speaker_idx", -1)),
+            "utterance": normalize_text(record["utterance"]),
+            "prompt": normalize_text(record.get("prompt", "")),  # Initial context/situation
+            "emotion": record.get("context", ""),  # The 'context' field is actually emotion label
+            "tags": record.get("tags", "")
+        })
+    
+    # Process each conversation
+    for conv_id, turns in conversations.items():
+        # Sort turns by utterance_idx to maintain conversation order
+        turns.sort(key=lambda x: x["utterance_idx"])
+        
+        if not turns:
             continue
-        turn_id = turn_counters.get(conv_id, 0)
-        turn_counters[conv_id] = turn_id + 1
-        examples.append(
-            {
-                "dataset": "empathetic_dialogues",
-                "split": split,
-                "dialog_id": f"ed_{split}_{conv_id}",
-                "turn_id": turn_id,
-                "speaker": int(record.get("speaker_idx", -1)),
-                "context": context,
-                "response": response,
-                "emotion": record.get("tags", ""),
-            }
-        )
+        
+        # Get the emotion label (same for all turns in a conversation)
+        emotion_label = turns[0]["emotion"] if turns else ""
+        
+        # Get initial prompt if available (used as first context)
+        initial_prompt = turns[0].get("prompt", "") if turns else ""
+        
+        # Build conversation history buffer
+        history_buffer: List[str] = []
+        if initial_prompt:
+            history_buffer.append(initial_prompt)
+        
+        # Process each turn to create context-response pairs
+        for turn_idx, turn in enumerate(turns):
+            utterance = turn["utterance"]
+            if not utterance:
+                continue
+            
+            # If we have history, create a training example
+            if history_buffer:
+                # Use last 'history' turns as context
+                context = HISTORY_SEPARATOR.join(history_buffer[-history:])
+                examples.append(
+                    {
+                        "dataset": "empathetic_dialogues",
+                        "split": split,
+                        "dialog_id": f"ed_{split}_{conv_id}",
+                        "turn_id": turn["utterance_idx"],
+                        "speaker": turn["speaker"],
+                        "context": context,
+                        "response": utterance,
+                        "emotion": emotion_label,  # Store emotion label
+                    }
+                )
+            
+            # Add current utterance to history buffer
+            history_buffer.append(utterance)
+    
     return examples
 
 
@@ -157,7 +203,7 @@ def preprocess(output_dir: Path, history: int, cache_dir: Path) -> None:
         dd_examples = build_dailydialog_examples(split, history)
         save_jsonl(dd_examples, output_dir / "dailydialog" / f"{split}.jsonl")
 
-        ed_examples = build_empathetic_examples(split, cache_dir)
+        ed_examples = build_empathetic_examples(split, cache_dir, history)
         save_jsonl(ed_examples, output_dir / "empathetic_dialogues" / f"{split}.jsonl")
 
 
