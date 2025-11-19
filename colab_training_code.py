@@ -420,7 +420,7 @@ if output_dir != checkpoint_dir:
         print(f"Checkpoints copied to Drive: {checkpoint_dir}")
 
 # ============================================================================
-# CELL 10: Save final model to Drive
+# CELL 11: Save final model to Drive
 # ============================================================================
 # Save final model to Drive (persistent storage)
 drive_model_path = f"{drive_base}/models/dialogpt_final"
