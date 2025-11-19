@@ -128,31 +128,49 @@ max_length = 64  # Further reduced to 64 to save memory
 USE_SUBSET = False  # Set to True to use only first 1000 samples for testing
 SUBSET_SIZE = 1000
 
-train_dataset = DialogueDataset(
+# Load both datasets
+from torch.utils.data import ConcatDataset
+
+# DailyDialog
+dd_train = DialogueDataset(
     f"{base_dir}/dailydialog/train.jsonl",
+    tokenizer,
+    max_length=max_length
+)
+
+dd_val = DialogueDataset(
+    f"{base_dir}/dailydialog/validation.jsonl",
+    tokenizer,
+    max_length=max_length
+)
+
+# EmpatheticDialogues
+ed_train = DialogueDataset(
+    f"{base_dir}/empathetic_dialogues/train.jsonl",
+    tokenizer,
+    max_length=max_length
+)
+
+ed_val = DialogueDataset(
+    f"{base_dir}/empathetic_dialogues/validation.jsonl",
     tokenizer,
     max_length=max_length
 )
 
 # Optionally limit dataset size for testing
 if USE_SUBSET:
-    train_dataset.examples = train_dataset.examples[:SUBSET_SIZE]
-    print(f"Using subset of {SUBSET_SIZE} samples for testing")
+    dd_train.examples = dd_train.examples[:SUBSET_SIZE]
+    ed_train.examples = ed_train.examples[:SUBSET_SIZE]
+    print(f"Using subset of {SUBSET_SIZE} samples per dataset for testing")
 
-val_dataset = DialogueDataset(
-    f"{base_dir}/dailydialog/validation.jsonl",
-    tokenizer,
-    max_length=max_length
-)
+# Combine both datasets
+train_dataset = ConcatDataset([dd_train, ed_train])
+val_dataset = ConcatDataset([dd_val, ed_val])
 
-if USE_SUBSET:
-    val_dataset.examples = val_dataset.examples[:SUBSET_SIZE // 10]  # Smaller validation set
-
-# Optionally combine with empathetic_dialogues
-# You can create separate datasets and combine them with ConcatDataset
-
-print(f"Training samples: {len(train_dataset)}")
-print(f"Validation samples: {len(val_dataset)}")
+print(f"DailyDialog - Train: {len(dd_train)}, Val: {len(dd_val)}")
+print(f"EmpatheticDialogues - Train: {len(ed_train)}, Val: {len(ed_val)}")
+print(f"Combined - Training samples: {len(train_dataset)}")
+print(f"Combined - Validation samples: {len(val_dataset)}")
 
 # ============================================================================
 # CELL 4: Create DataLoader
@@ -171,7 +189,8 @@ gradient_accumulation_steps = 16  # Increased to maintain effective batch size =
 #     pin_memory=False  # Disable pin_memory to save memory
 # )
 
-print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
+# Note: Trainer will create its own DataLoader, so we don't need to create these manually
+# print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
 
 # ============================================================================
 # CELL 5: Configure LoRA with PEFT
@@ -487,4 +506,5 @@ with torch.no_grad():
 
 generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
 print(f"Generated: {generated_text}")
+
 
