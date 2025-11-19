@@ -2,11 +2,11 @@
   "dataset": "empathetic_dialogues",
   "model": "gpt-3.5-turbo",
   "num_samples": 5,
-  "total_latency_seconds": 4.1364970207214355,
-  "total_tokens": 281,
-  "avg_latency_seconds": 0.8272994041442872,
-  "avg_tokens_per_sample": 56.2,
-  "temperature": 0.7,
-  "max_tokens": 150,
+  "total_latency_seconds": 2.447145938873291,
+  "total_tokens": 1108,
+  "avg_latency_seconds": 0.4894291877746582,
+  "avg_tokens_per_sample": 221.6,
+  "temperature": 0.8,
+  "max_tokens": 50,
   "output_file": "data/llm_outputs/empathetic_dialogues_gpt35_responses.jsonl"
 }

@@ -71,18 +71,34 @@ def load_dailydialog_split(split: str) -> Tuple[List[List[str]], List[List[int]]
     return dialogues, emotions
 
 
-def build_dailydialog_examples(split: str, history: int) -> List[Dict]:
-    """Turn multi-turn DailyDialog conversations into context-response pairs."""
+def build_dailydialog_examples(split: str, history: int, add_speaker_tags: bool = True) -> List[Dict]:
+    """Turn multi-turn DailyDialog conversations into context-response pairs.
+    
+    Args:
+        split: Dataset split (train/validation/test)
+        history: Number of previous turns to include
+        add_speaker_tags: Whether to add speaker tags (A:/B:) to context
+    """
     dialogs, emotions = load_dailydialog_split(split)
     examples: List[Dict] = []
 
     for dialog_id, turns in enumerate(dialogs):
         emo_seq = emotions[dialog_id] if dialog_id < len(emotions) else [-1] * len(turns)
         history_buffer: List[str] = []
+        speaker_buffer: List[str] = []
+        
         for turn_idx, utterance in enumerate(turns):
             speaker = "A" if turn_idx % 2 == 0 else "B"
             if history_buffer:
-                context = HISTORY_SEPARATOR.join(history_buffer[-history:])
+                # Build context with speaker tags if enabled
+                if add_speaker_tags:
+                    context_parts = []
+                    for spk, utt in zip(speaker_buffer[-history:], history_buffer[-history:]):
+                        context_parts.append(f"{spk}: {utt}")
+                    context = HISTORY_SEPARATOR.join(context_parts)
+                else:
+                    context = HISTORY_SEPARATOR.join(history_buffer[-history:])
+                
                 examples.append(
                     {
                         "dataset": "dailydialog",
@@ -96,6 +112,7 @@ def build_dailydialog_examples(split: str, history: int) -> List[Dict]:
                     }
                 )
             history_buffer.append(utterance)
+            speaker_buffer.append(speaker)
     return examples
 
 
@@ -165,8 +182,27 @@ def build_empathetic_examples(split: str, cache_dir: Path, history: int = 3) -> 
         
         # Build conversation history buffer
         history_buffer: List[str] = []
+        speaker_buffer: List[str] = []
+        
+        # Create a mapping from numeric speaker_idx to A/B letters for this conversation
+        # We'll assign letters in the order speakers first appear
+        speaker_mapping: Dict[int, str] = {}
+        speaker_letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']  # Support up to 8 speakers
+        
         if initial_prompt:
+            # Assign speaker for initial prompt (usually the first speaker in the conversation)
+            # Get the first speaker from turns[0] if available
+            first_speaker_idx = turns[0]["speaker"] if turns else -1
+            if first_speaker_idx >= 0:
+                # Map the first speaker to letter 'A'
+                if first_speaker_idx not in speaker_mapping:
+                    speaker_mapping[first_speaker_idx] = speaker_letters[len(speaker_mapping)]
+                initial_speaker = speaker_mapping[first_speaker_idx]
+            else:
+                initial_speaker = "A"  # Default to A if no speaker info
+            
             history_buffer.append(initial_prompt)
+            speaker_buffer.append(initial_speaker)  # Initial prompt now has speaker label
         
         # Process each turn to create context-response pairs
         for turn_idx, turn in enumerate(turns):
@@ -174,17 +210,29 @@ def build_empathetic_examples(split: str, cache_dir: Path, history: int = 3) -> 
             if not utterance:
                 continue
             
+            # Map numeric speaker_idx to letter (A, B, C, ...)
+            numeric_speaker = turn["speaker"]
+            if numeric_speaker not in speaker_mapping and numeric_speaker >= 0:
+                # Assign next available letter
+                speaker_mapping[numeric_speaker] = speaker_letters[len(speaker_mapping)]
+            speaker_letter = speaker_mapping.get(numeric_speaker, "")
+            
             # If we have history, create a training example
             if history_buffer:
-                # Use last 'history' turns as context
-                context = HISTORY_SEPARATOR.join(history_buffer[-history:])
+                # Use last 'history' turns as context (with speaker tags like DailyDialog)
+                context_parts = []
+                for spk, utt in zip(speaker_buffer[-history:], history_buffer[-history:]):
+                    # All utterances now have speaker labels (including initial prompt)
+                    context_parts.append(f"{spk}: {utt}")
+                context = HISTORY_SEPARATOR.join(context_parts)
+                
                 examples.append(
                     {
                         "dataset": "empathetic_dialogues",
                         "split": split,
                         "dialog_id": f"ed_{split}_{conv_id}",
                         "turn_id": turn["utterance_idx"],
-                        "speaker": turn["speaker"],
+                        "speaker": speaker_letter,  # Use letter format like DailyDialog
                         "context": context,
                         "response": utterance,
                         "emotion": emotion_label,  # Store emotion label
@@ -193,14 +241,22 @@ def build_empathetic_examples(split: str, cache_dir: Path, history: int = 3) -> 
             
             # Add current utterance to history buffer
             history_buffer.append(utterance)
+            speaker_buffer.append(speaker_letter)
     
     return examples
 
 
-def preprocess(output_dir: Path, history: int, cache_dir: Path) -> None:
-    """Download both datasets, preprocess, and write JSONL files."""
+def preprocess(output_dir: Path, history: int, cache_dir: Path, add_speaker_tags: bool = True) -> None:
+    """Download both datasets, preprocess, and write JSONL files.
+    
+    Args:
+        output_dir: Output directory for processed files
+        history: Number of previous turns to include in context
+        cache_dir: Cache directory for downloaded files
+        add_speaker_tags: Whether to add speaker tags (A:/B: or Speaker X:) to context
+    """
     for split in ("train", "validation", "test"):
-        dd_examples = build_dailydialog_examples(split, history)
+        dd_examples = build_dailydialog_examples(split, history, add_speaker_tags=add_speaker_tags)
         save_jsonl(dd_examples, output_dir / "dailydialog" / f"{split}.jsonl")
 
         ed_examples = build_empathetic_examples(split, cache_dir, history)
@@ -227,10 +283,16 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Cache directory for raw compressed files.",
     )
+    parser.add_argument(
+        "--add-speaker-tags",
+        action="store_true",
+        default=True,
+        help="Add speaker tags (A:/B: or Speaker X:) to context for better role identification.",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    preprocess(args.output_dir, args.history, args.cache_dir)
+    preprocess(args.output_dir, args.history, args.cache_dir, args.add_speaker_tags)
 

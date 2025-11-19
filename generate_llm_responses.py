@@ -22,7 +22,7 @@ except ImportError:
     OPENAI_NEW_VERSION = False
 
 # Import shared prompt templates
-from prompt_templates import format_prompt
+from prompt_templates import format_prompt, get_system_message, format_prompt_with_speaker_context
 
 
 # ============================================================================
@@ -30,7 +30,7 @@ from prompt_templates import format_prompt
 # ============================================================================
 NUM_SAMPLES = 20          # 每个数据集生成的样本数量
 MODEL_NAME = "gpt-3.5-turbo"  # OpenAI模型名称
-TEMPERATURE = 0.9          # 采样温度 (0-1) - 提高到0.9增加随意性
+TEMPERATURE = 0.8          # 采样温度 (0-1) - 降到0.8平衡创造性和一致性
 MAX_TOKENS = 50            # 最大生成token数 - 降低到50保持简短
 OUTPUT_DIR = "data/llm_outputs"  # 输出目录
 # ============================================================================
@@ -59,6 +59,7 @@ def load_test_samples(test_path: Path, limit: int = None) -> List[Dict]:
 
 def generate_gpt35_response(
     context: str,
+    speaker: str = None,
     model: str = "gpt-3.5-turbo",
     temperature: float = 0.7,
     max_tokens: int = 150,
@@ -68,7 +69,8 @@ def generate_gpt35_response(
     Generate a response using GPT-3.5.
     
     Args:
-        context: The conversation context
+        context: The conversation context (with speaker labels like "A: text")
+        speaker: The speaker who should respond (e.g., "A", "B")
         model: OpenAI model name
         temperature: Sampling temperature
         max_tokens: Maximum tokens to generate
@@ -77,14 +79,20 @@ def generate_gpt35_response(
     Returns:
         Tuple of (response_text, latency_seconds, token_usage)
     """
-    # Format the prompt using shared template
-    prompt = format_prompt(context, include_user_prefix=True)
+    # Get system message from prompt_templates
+    system_message = get_system_message(include_speaker_guidance=True)
+    
+    # Format the prompt using shared template with speaker awareness
+    if speaker:
+        prompt = format_prompt_with_speaker_context(context, speaker)
+    else:
+        prompt = format_prompt(context, include_user_prefix=False)
     
     # Prepare the API call
     messages = [
         {
             "role": "system",
-            "content": "You are having a casual conversation. Respond naturally and briefly, like a real person would in everyday dialogue. Keep your responses SHORT (1-2 sentences maximum), CASUAL, and CONVERSATIONAL. Don't be overly polite or formal. Match the tone and style of natural human conversation."
+            "content": system_message
         },
         {
             "role": "user",
@@ -133,7 +141,12 @@ def generate_gpt35_response(
         # Calculate latency
         latency = time.time() - start_time
         
-        return response_text, latency, token_usage
+        # Clean up response: remove speaker labels if present
+        # Pattern: "A: ", "B: ", "Professor Clark: ", etc.
+        import re
+        cleaned_response = re.sub(r'^[A-Z][^:]{0,20}:\s*', '', response_text.strip())
+        
+        return cleaned_response, latency, token_usage
         
     except Exception as e:
         print(f"\n❌ ERROR calling OpenAI API:")
@@ -190,9 +203,11 @@ def generate_llm_responses(
     
     print(f"\nGenerating responses using {model}...")
     for i, sample in enumerate(tqdm(test_samples, desc="Generating")):
-        # Generate response
+        # Generate response with speaker awareness
+        speaker = sample.get("speaker", None)  # Get the speaker who should respond
         generated_response, latency, token_usage = generate_gpt35_response(
             context=sample["context"],
+            speaker=speaker,
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
