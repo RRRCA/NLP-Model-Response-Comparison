@@ -1,0 +1,12 @@
+{
+  "dataset": "dailydialog",
+  "model": "gpt-3.5-turbo",
+  "num_samples": 20,
+  "total_latency_seconds": 17.963972568511963,
+  "total_tokens": 2205,
+  "avg_latency_seconds": 0.8981986284255982,
+  "avg_tokens_per_sample": 110.25,
+  "temperature": 0.7,
+  "max_tokens": 150,
+  "output_file": "data/llm_outputs/dailydialog_gpt35_responses.jsonl"
+}
