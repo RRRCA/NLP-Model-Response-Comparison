@@ -36,13 +36,14 @@ OUTPUT_DIR = "data/llm_outputs"  # 输出目录
 # ============================================================================
 
 
-def load_test_samples(test_path: Path, limit: int = None) -> List[Dict]:
+def load_test_samples(test_path: Path, limit: int = None, offset: int = 0) -> List[Dict]:
     """
     Load test samples from JSONL file.
     
     Args:
         test_path: Path to test.jsonl file
         limit: Maximum number of samples to load (None = all)
+        offset: Number of samples to skip from the beginning
     
     Returns:
         List of test sample dictionaries
@@ -50,7 +51,11 @@ def load_test_samples(test_path: Path, limit: int = None) -> List[Dict]:
     samples = []
     with open(test_path, 'r', encoding='utf-8') as f:
         for i, line in enumerate(f):
-            if limit and i >= limit:
+            # Skip samples before offset
+            if i < offset:
+                continue
+            # Stop after loading 'limit' samples
+            if limit and len(samples) >= limit:
                 break
             if line.strip():
                 samples.append(json.loads(line))
@@ -165,7 +170,9 @@ def generate_llm_responses(
     model: str = "gpt-3.5-turbo",
     temperature: float = 0.7,
     max_tokens: int = 150,
-    api_key: str = None
+    api_key: str = None,
+    offset: int = 0,
+    append: bool = False
 ) -> None:
     """
     Generate LLM responses for test samples and save results.
@@ -179,6 +186,8 @@ def generate_llm_responses(
         temperature: Sampling temperature
         max_tokens: Maximum tokens to generate
         api_key: OpenAI API key (if None, will use environment variable)
+        offset: Number of samples to skip from the beginning (for batch processing)
+        append: Whether to append to existing output file (vs overwrite)
     """
     # Set up OpenAI API key and client
     if OPENAI_NEW_VERSION:
@@ -193,9 +202,12 @@ def generate_llm_responses(
             openai.api_key = api_key
         client = None
     
-    print(f"Loading {num_samples} test samples from {test_path}...")
-    test_samples = load_test_samples(test_path, limit=num_samples)
-    print(f"Loaded {len(test_samples)} samples")
+    print(f"Loading test samples from {test_path}...")
+    if offset > 0:
+        print(f"  Skipping first {offset} samples...")
+    print(f"  Loading up to {num_samples} samples...")
+    test_samples = load_test_samples(test_path, limit=num_samples, offset=offset)
+    print(f"Loaded {len(test_samples)} samples (offset: {offset}, range: {offset}-{offset+len(test_samples)-1})")
     
     results = []
     total_latency = 0.0
@@ -244,9 +256,15 @@ def generate_llm_responses(
     
     # Save results to JSONL
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, 'w', encoding='utf-8') as f:
+    write_mode = 'a' if append else 'w'
+    with open(output_path, write_mode, encoding='utf-8') as f:
         for result in results:
             f.write(json.dumps(result, ensure_ascii=False) + '\n')
+    
+    if append:
+        print(f"\n✅ Results appended to existing file: {output_path}")
+    else:
+        print(f"\n✅ Results saved to new file: {output_path}")
     
     # Save summary statistics
     summary_path = output_path.parent / f"{output_path.stem}_summary.json"
@@ -326,6 +344,23 @@ def parse_args() -> argparse.Namespace:
         default=Path(OUTPUT_DIR),  # 使用文件顶部的配置
         help=f"Directory to save output files (default: {OUTPUT_DIR})"
     )
+    parser.add_argument(
+        "--data-source",
+        choices=["processed_sample", "full_processed_sample"],
+        default="full_processed_sample",
+        help="Which data directory to use (default: full_processed_sample)"
+    )
+    parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Number of samples to skip from the beginning (for batch processing, default: 0)"
+    )
+    parser.add_argument(
+        "--append",
+        action="store_true",
+        help="Append to existing output file instead of overwriting"
+    )
     return parser.parse_args()
 
 
@@ -333,7 +368,7 @@ if __name__ == "__main__":
     args = parse_args()
     
     # Base paths
-    base_dir = Path("data/processed_sample")
+    base_dir = Path("data") / args.data_source
     
     # Process datasets
     datasets_to_process = []
@@ -365,7 +400,9 @@ if __name__ == "__main__":
             model=args.model,
             temperature=args.temperature,
             max_tokens=args.max_tokens,
-            api_key=args.api_key
+            api_key=args.api_key,
+            offset=args.offset,
+            append=args.append
         )
     
     print("\n✅ All datasets processed successfully!")
