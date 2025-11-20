@@ -271,22 +271,22 @@ output_dir = checkpoint_dir  # Save to Drive
 
 training_args = TrainingArguments(
     output_dir=output_dir,
-    num_train_epochs=3,
+    num_train_epochs=10,  # Increased to 10 for better training to match LLM quality
     per_device_train_batch_size=batch_size,
-    per_device_eval_batch_size=batch_size,
     gradient_accumulation_steps=gradient_accumulation_steps,
-    learning_rate=2e-4,
+    learning_rate=1e-4,  # Reduced learning rate for fine-tuning (from 2e-4)
     fp16=True,  # Mixed precision training
     gradient_checkpointing=True,  # Enable gradient checkpointing to save memory
     logging_steps=100,  # Less frequent logging to save memory
-    eval_steps=1000,  # Less frequent evaluation to save memory
-    save_steps=1000,  # Less frequent saving to save memory
+    eval_steps=2000,  # Less frequent evaluation to save memory (increased to reduce eval frequency)
+    save_steps=2000,  # Less frequent saving to save memory (increased to reduce save frequency)
     eval_strategy="steps",  # Changed from evaluation_strategy in newer transformers versions
     save_strategy="steps",
+    per_device_eval_batch_size=1,  # Use batch_size=1 for evaluation to save memory
     load_best_model_at_end=True,
     metric_for_best_model="eval_loss",
     greater_is_better=False,
-    warmup_steps=100,
+    warmup_steps=200,  # Increased warmup for better convergence
     weight_decay=0.01,
     lr_scheduler_type="cosine",
     report_to="none",  # Disable wandb/tensorboard in Colab
@@ -295,6 +295,8 @@ training_args = TrainingArguments(
     remove_unused_columns=False,  # Keep all columns
     dataloader_num_workers=0,  # No multiprocessing to save memory
     max_grad_norm=1.0,  # Gradient clipping
+    eval_accumulation_steps=4,  # Accumulate evaluation to save memory
+    prediction_loss_only=True,  # Only compute loss during evaluation, not full metrics
 )
 
 print("Training arguments configured!")
@@ -347,13 +349,26 @@ def data_collator(features):
     
     return batch
 
+# Optionally use smaller validation set to save memory during evaluation
+# Create a subset of validation dataset for evaluation
+from torch.utils.data import Subset
+
+# Use only first 500 samples from validation set for evaluation (to save memory)
+MAX_VAL_SAMPLES = 500  # Adjust based on memory
+if len(val_dataset) > MAX_VAL_SAMPLES:
+    val_indices = list(range(min(MAX_VAL_SAMPLES, len(val_dataset))))
+    val_dataset_eval = Subset(val_dataset, val_indices)
+    print(f"Using subset of validation set for evaluation: {len(val_dataset_eval)} samples")
+else:
+    val_dataset_eval = val_dataset
+
 # Create Trainer
 trainer = Trainer(
     model=model,
     args=training_args,
     train_dataset=train_dataset,
-    eval_dataset=val_dataset,
-    compute_metrics=compute_metrics,
+    eval_dataset=val_dataset_eval,  # Use smaller validation set
+    compute_metrics=None,  # Disable compute_metrics to save memory (can re-enable if needed)
     data_collator=data_collator
 )
 
@@ -384,6 +399,9 @@ if checkpoint_files:
     resume_from_checkpoint = f"{checkpoint_dir}/checkpoint-{latest_checkpoint}"
     print(f"Found existing checkpoint: {resume_from_checkpoint}")
     print("Resuming training from checkpoint...")
+    print(f"This will continue training from step {latest_checkpoint}")
+    print(f"Total epochs will be 10, training will continue from where it left off.")
+    print(f"Note: Training will continue until epoch 10 is reached.")
 else:
     resume_from_checkpoint = None
     print("No existing checkpoint found. Starting fresh training...")
@@ -490,21 +508,68 @@ test_context = "Hello, how are you?"
 
 # Format prompt using shared template
 prompt = format_prompt(test_context)
+print(f"Context: {test_context}")
 print(f"Prompt: {prompt}")
+print()
 
 # Tokenize and generate
 inputs = tokenizer(prompt, return_tensors="pt").to(device)
+input_length = inputs['input_ids'].shape[1]
+
 with torch.no_grad():
     outputs = model.generate(
         **inputs,
-        max_length=100,
+        max_new_tokens=50,  # Changed from max_length to max_new_tokens
+        min_length=input_length + 5,  # Minimum length including input
         num_return_sequences=1,
-        temperature=0.7,
+        temperature=0.8,  # Slightly higher temperature for more variety
         do_sample=True,
-        pad_token_id=tokenizer.eos_token_id
+        top_p=0.9,  # Nucleus sampling
+        pad_token_id=tokenizer.eos_token_id,
+        eos_token_id=tokenizer.eos_token_id,
+        repetition_penalty=1.2  # Reduce repetition
     )
 
-generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-print(f"Generated: {generated_text}")
+# Decode only the generated part (excluding the input)
+generated_tokens = outputs[0][input_length:]
+generated_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+
+print(f"Generated response: {generated_text}")
+print()
+
+# Test multiple contexts to see quality
+print("=" * 60)
+print("Testing multiple contexts:")
+print("=" * 60)
+
+test_contexts = [
+    "Hello, how are you?",
+    "I'm feeling sad today.",
+    "Can you help me with my homework?",
+]
+
+for ctx in test_contexts:
+    prompt = format_prompt(ctx)
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    input_length = inputs['input_ids'].shape[1]
+    
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=50,
+            temperature=0.8,
+            do_sample=True,
+            top_p=0.9,
+            pad_token_id=tokenizer.eos_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+            repetition_penalty=1.2
+        )
+    
+    generated_tokens = outputs[0][input_length:]
+    generated_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+    
+    print(f"\nContext: {ctx}")
+    print(f"Response: {generated_text}")
+    print("-" * 60)
 
 
